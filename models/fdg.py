@@ -6,6 +6,35 @@ import torch
 import torch.nn as nn
 
 
+def initialize_core_matrix(matrix: torch.Tensor, b_init: str = "identity_perturbed") -> None:
+    if b_init == "identity_perturbed":
+        with torch.no_grad():
+            if matrix.shape[0] == matrix.shape[1]:
+                matrix.copy_(torch.eye(matrix.shape[0], device=matrix.device, dtype=matrix.dtype))
+            else:
+                nn.init.xavier_uniform_(matrix)
+            matrix.add_(0.01 * torch.randn_like(matrix))
+    elif b_init == "random":
+        nn.init.normal_(matrix, mean=0.0, std=1.0 / math.sqrt(max(1, matrix.shape[-1])))
+    else:
+        raise ValueError(f"Unsupported b_init: {b_init}")
+
+
+def row_normalize_adjacency(A: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
+    if mask is not None:
+        valid = mask.to(A.dtype)
+        A = A * valid.unsqueeze(-1) * valid.unsqueeze(-2)
+
+    row_sums = A.sum(dim=-1, keepdim=True)
+    non_zero_rows = row_sums.abs() >= 1e-8
+    safe_row_sums = torch.where(non_zero_rows, row_sums, torch.ones_like(row_sums))
+    A = torch.where(non_zero_rows, A / safe_row_sums, torch.zeros_like(A))
+
+    if mask is not None:
+        A = A * mask.to(A.dtype).unsqueeze(-1)
+    return A
+
+
 class FDG(nn.Module):
     """
     Factorized Directed Graph.
@@ -38,14 +67,7 @@ class FDG(nn.Module):
     def reset_parameters(self, b_init: str = "identity_perturbed") -> None:
         nn.init.xavier_uniform_(self.W_s.weight)
         nn.init.xavier_uniform_(self.W_r.weight)
-        if b_init == "identity_perturbed":
-            with torch.no_grad():
-                self.B.copy_(torch.eye(self.rank))
-                self.B.add_(0.01 * torch.randn_like(self.B))
-        elif b_init == "random":
-            nn.init.normal_(self.B, mean=0.0, std=1.0 / math.sqrt(self.rank))
-        else:
-            raise ValueError(f"Unsupported b_init: {b_init}")
+        initialize_core_matrix(self.B, b_init=b_init)
 
     def forward(self, X, mask=None):
         """
@@ -78,16 +100,5 @@ class FDG(nn.Module):
 
         A = S @ self.B @ R.transpose(-1, -2)
 
-        if mask is not None:
-            valid = mask.to(A.dtype)
-            A = A * valid.unsqueeze(-1) * valid.unsqueeze(-2)
-
-        row_sums = A.sum(dim=-1, keepdim=True)
-        non_zero_rows = row_sums.abs() >= 1e-8
-        safe_row_sums = torch.where(non_zero_rows, row_sums, torch.ones_like(row_sums))
-        A = torch.where(non_zero_rows, A / safe_row_sums, torch.zeros_like(A))
-
-        if mask is not None:
-            A = A * mask.to(A.dtype).unsqueeze(-1)
-
+        A = row_normalize_adjacency(A, mask=mask)
         return A, S, R

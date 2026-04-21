@@ -1,0 +1,54 @@
+market: csi300
+handler: Alpha158
+provider_uri: ~/.qlib/qlib_data/cn_data
+cache_dir: ~/.qlib_cache
+dataset_mode: official
+region: cn
+history_window: 0
+
+fit_start_time: 2008-01-01
+fit_end_time: 2014-12-31
+process_type: independent
+infer_processors:
+  - class: RobustZScoreNorm
+    kwargs:
+      fields_group: feature
+      clip_outlier: true
+  - class: Fillna
+    kwargs:
+      fields_group: feature
+learn_processors:
+  - class: DropnaLabel
+  - class: CSRankNorm
+    kwargs:
+      fields_group: label
+
+splits:
+  train: [2008-01-01, 2014-12-31]
+  valid: [2015-01-01, 2016-12-31]
+  test: [2017-01-01, 2020-08-01]
+
+model:
+  name: fdg
+  rank: 32
+  tau: 1.0
+  d_hidden: 128
+  dropout: 0.1
+  b_init: identity_perturbed
+  bottleneck_dim: 64
+
+train:
+  batch_size: 16
+  epochs: 60
+  lr: 1.0e-3
+  weight_decay: 1.0e-5
+  loss: mse
+  drop_extreme_pct: 0.0
+  wpcc_weight: 0.0
+  early_stop_patience: 12
+  grad_clip: 3.0
+  seed: 2026
+
+log:
+  out_dir: results/
+  exp_name: fdg_csi300_masterprep_official

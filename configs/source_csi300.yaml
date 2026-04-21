@@ -2,6 +2,7 @@ market: csi300
 handler: Alpha158
 provider_uri: ~/.qlib/qlib_data/cn_data
 cache_dir: ~/.qlib_cache
+history_window: 20
 
 splits:
   train: [2010-01-01, 2020-12-31]
@@ -15,6 +16,17 @@ model:
   d_hidden: 128
   dropout: 0.1
   b_init: identity_perturbed
+  bottleneck_dim: 64
+  residual_layers: 2
+  graph_layers: 1
+  prior_groups: 32
+  graph_kind: fdg_roll
+  graph_mix_init: 0.7
+  roll_topk: 20
+  final_topk: 20
+  roll_mix_init: 0.8
+  entropy_topk: 20
+  entropy_bins: 8
 
 train:
   batch_size: 8
@@ -22,6 +34,8 @@ train:
   lr: 1.0e-3
   weight_decay: 1.0e-5
   loss: ic
+  drop_extreme_pct: 0.0
+  wpcc_weight: 0.0
   early_stop_patience: 10
   grad_clip: 3.0
   seed: 2026

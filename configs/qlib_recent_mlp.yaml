@@ -1,0 +1,57 @@
+market: csi300
+handler: Alpha158
+provider_uri: ~/.qlib/qlib_data/cn_data
+cache_dir: ~/.qlib_cache
+dataset_mode: official
+region: cn
+history_window: 0
+
+fit_start_time: 2010-01-01
+fit_end_time: 2020-12-31
+process_type: independent
+infer_processors:
+  - class: DropCol
+    kwargs:
+      col_list: [VWAP0]
+  - class: CSZFillna
+    kwargs:
+      fields_group: feature
+learn_processors:
+  - class: DropCol
+    kwargs:
+      col_list: [VWAP0]
+  - class: DropnaProcessor
+    kwargs:
+      fields_group: feature
+  - class: DropnaLabel
+  - class: CSZScoreNorm
+    kwargs:
+      fields_group: label
+
+splits:
+  train: [2010-01-01, 2020-12-31]
+  valid: [2021-01-01, 2021-12-31]
+  test: [2022-01-01, 2025-12-31]
+
+model:
+  name: mlp
+  d_hidden: 128
+  dropout: 0.1
+  bottleneck_dim: 64
+  residual_layers: 2
+
+train:
+  batch_size: 16
+  epochs: 60
+  lr: 1.0e-3
+  weight_decay: 1.0e-5
+  loss: mse
+  drop_extreme_pct: 0.0
+  wpcc_weight: 0.0
+  early_stop_patience: 12
+  grad_clip: 3.0
+  seed: 2026
+
+log:
+  out_dir: results/
+  exp_name: mlp_csi300_qlib_recent

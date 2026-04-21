@@ -1,0 +1,67 @@
+market: csi300
+handler: Alpha158
+provider_uri: ~/.qlib/qlib_data/cn_data
+cache_dir: ~/.qlib_cache
+dataset_mode: official
+region: cn
+history_window: 20
+
+fit_start_time: 2008-01-01
+fit_end_time: 2014-12-31
+process_type: independent
+infer_processors:
+  - class: DropCol
+    kwargs:
+      col_list: [VWAP0]
+  - class: CSZFillna
+    kwargs:
+      fields_group: feature
+learn_processors:
+  - class: DropCol
+    kwargs:
+      col_list: [VWAP0]
+  - class: DropnaProcessor
+    kwargs:
+      fields_group: feature
+  - class: DropnaLabel
+  - class: CSZScoreNorm
+    kwargs:
+      fields_group: label
+
+splits:
+  train: [2008-01-01, 2014-12-31]
+  valid: [2015-01-01, 2016-12-31]
+  test: [2017-01-01, 2020-08-01]
+
+model:
+  name: fdg_slowfast
+  rank: 24
+  tau: 0.8
+  d_hidden: 128
+  dropout: 0.1
+  b_init: identity_perturbed
+  bottleneck_layers: [64, 32, 64]
+  conv_channels: 24
+  temporal_kernel_size: 5
+  graph_slow_init: 0.85
+  value_fast_init: 0.85
+  fast_graph_mix_init: 0.05
+  graph_smooth_weight: 0.0
+  assignment_smooth_weight: 0.0
+
+train:
+  batch_size: 12
+  epochs: 20
+  lr: 8.0e-4
+  weight_decay: 1.0e-5
+  loss: mse
+  drop_extreme_pct: 0.0
+  ic_weight: 0.0
+  wpcc_weight: 0.0
+  early_stop_patience: 5
+  grad_clip: 3.0
+  seed: 2026
+
+log:
+  out_dir: results/
+  exp_name: fdg_slowfast_csi300_qlib_official_quick

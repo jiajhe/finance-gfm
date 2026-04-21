@@ -13,6 +13,38 @@ def _masked_mean(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     return torch.where(mask, x, torch.zeros_like(x)).sum(dim=-1, keepdim=True) / denom
 
 
+def trim_extreme_mask(y: torch.Tensor, mask: torch.Tensor, drop_pct: float) -> torch.Tensor:
+    drop_pct = float(drop_pct)
+    if drop_pct <= 0.0:
+        return mask
+
+    tail_pct = drop_pct / 2.0
+    trimmed_rows = []
+    for target_row, mask_row in zip(y, mask):
+        valid_idx = torch.nonzero(mask_row, as_tuple=False).squeeze(-1)
+        n_valid = int(valid_idx.numel())
+        if n_valid < 10:
+            trimmed_rows.append(mask_row)
+            continue
+
+        drop_per_tail = int(n_valid * tail_pct)
+        if drop_per_tail <= 0 or (n_valid - 2 * drop_per_tail) < 10:
+            trimmed_rows.append(mask_row)
+            continue
+
+        valid_targets = target_row[valid_idx]
+        order = torch.argsort(valid_targets)
+        keep = torch.ones(n_valid, dtype=torch.bool, device=mask_row.device)
+        keep[order[:drop_per_tail]] = False
+        keep[order[-drop_per_tail:]] = False
+
+        trimmed = torch.zeros_like(mask_row)
+        trimmed[valid_idx[keep]] = True
+        trimmed_rows.append(trimmed)
+
+    return torch.stack(trimmed_rows, dim=0)
+
+
 def ic_loss(y_hat, y, mask):
     """
     Cross-sectional IC loss, averaged over batch.
@@ -78,3 +110,52 @@ def wpcc_loss(y_hat, y, mask):
     if not losses:
         return _zero_loss(y_hat)
     return torch.stack(losses).mean()
+
+
+def mse_loss(y_hat, y, mask):
+    mask_f = mask.to(y_hat.dtype)
+    denom = mask_f.sum().clamp_min(1.0)
+    squared_error = (y_hat - y).square() * mask_f
+    return squared_error.sum() / denom
+
+
+def build_loss(
+    loss_name: str,
+    drop_extreme_pct: float = 0.0,
+    wpcc_weight: float = 0.0,
+    ic_weight: float = 0.0,
+):
+    loss_name = str(loss_name).lower()
+    drop_extreme_pct = float(drop_extreme_pct)
+    wpcc_weight = float(wpcc_weight)
+    ic_weight = float(ic_weight)
+
+    def loss_fn(y_hat, y, mask):
+        effective_mask = trim_extreme_mask(y=y, mask=mask, drop_pct=drop_extreme_pct)
+        if loss_name == "ic":
+            return (1.0 - wpcc_weight) * ic_loss(y_hat, y, effective_mask) + wpcc_weight * wpcc_loss(
+                y_hat, y, effective_mask
+            )
+        if loss_name == "wpcc":
+            return wpcc_loss(y_hat, y, effective_mask)
+        if loss_name == "ic_wpcc":
+            mix = wpcc_weight if wpcc_weight > 0.0 else 0.2
+            return (1.0 - mix) * ic_loss(y_hat, y, effective_mask) + mix * wpcc_loss(
+                y_hat, y, effective_mask
+            )
+        if loss_name == "mse":
+            return mse_loss(y_hat, y, effective_mask)
+        if loss_name == "mse_ic":
+            mix = ic_weight if ic_weight > 0.0 else 0.1
+            return mse_loss(y_hat, y, effective_mask) + mix * ic_loss(y_hat, y, effective_mask)
+        if loss_name == "mse_ic_wpcc":
+            ic_mix = ic_weight if ic_weight > 0.0 else 0.1
+            wpcc_mix = wpcc_weight if wpcc_weight > 0.0 else 0.05
+            return (
+                mse_loss(y_hat, y, effective_mask)
+                + ic_mix * ic_loss(y_hat, y, effective_mask)
+                + wpcc_mix * wpcc_loss(y_hat, y, effective_mask)
+            )
+        raise ValueError(f"Unsupported loss: {loss_name}")
+
+    return loss_fn

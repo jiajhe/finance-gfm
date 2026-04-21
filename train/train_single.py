@@ -13,11 +13,11 @@ import yaml
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from data.qlib_loader import QlibCrossSectionalDataset, pad_collate
+from data.qlib_loader import QlibCrossSectionalDataset, build_qlib_handler_datasets, pad_collate
 from eval.metrics import ic as ic_metrics
 from eval.portfolio import topk_portfolio
 from models import build_model
-from train.loss import ic_loss, wpcc_loss
+from train.loss import build_loss
 
 
 def parse_args() -> argparse.Namespace:
@@ -64,6 +64,10 @@ def safe_torch_load(path: Path, map_location: str | torch.device = "cpu"):
 
 
 def build_datasets(cfg: dict):
+    dataset_mode = str(cfg.get("dataset_mode", "raw")).lower()
+    if dataset_mode in {"qlib_handler", "official"}:
+        return build_qlib_handler_datasets(cfg)
+
     common_kwargs = {
         "market": cfg["market"],
         "handler": cfg.get("handler", "Alpha158"),
@@ -72,6 +76,7 @@ def build_datasets(cfg: dict):
         "label": cfg.get("label", "Ref($close, -2) / Ref($close, -1) - 1"),
         "chunk_size_days": int(cfg.get("chunk_size_days", 252)),
         "feature_limit": cfg.get("feature_limit"),
+        "history_window": int(cfg.get("history_window", cfg.get("model", {}).get("history_window", 0))),
     }
     splits = cfg["splits"]
     train_ds = QlibCrossSectionalDataset(
@@ -106,21 +111,35 @@ def build_loaders(cfg: dict, train_ds, valid_ds, test_ds):
     return train_loader, valid_loader, test_loader
 
 
-def choose_loss(name: str):
-    if name == "ic":
-        return ic_loss
-    if name == "wpcc":
-        return wpcc_loss
-    raise ValueError(f"Unsupported loss: {name}")
+def choose_loss(train_cfg: dict):
+    return build_loss(
+        loss_name=str(train_cfg["loss"]).lower(),
+        drop_extreme_pct=float(train_cfg.get("drop_extreme_pct", 0.0)),
+        wpcc_weight=float(train_cfg.get("wpcc_weight", 0.0)),
+        ic_weight=float(train_cfg.get("ic_weight", 0.0)),
+    )
 
 
-def _collect_batch_arrays(preds, labels, masks, dates, instruments, pred_store, label_store, mask_store, date_store, instrument_store):
+def _collect_batch_arrays(
+    preds,
+    labels,
+    raw_labels,
+    masks,
+    dates,
+    instruments,
+    pred_store,
+    label_store,
+    mask_store,
+    date_store,
+    instrument_store,
+):
     preds_np = preds.detach().cpu().numpy()
     labels_np = labels.detach().cpu().numpy()
+    raw_labels_np = raw_labels.detach().cpu().numpy()
     masks_np = masks.detach().cpu().numpy().astype(bool)
     for idx, date in enumerate(dates):
         pred_store.append(preds_np[idx])
-        label_store.append(labels_np[idx])
+        label_store.append(raw_labels_np[idx] if raw_labels_np is not None else labels_np[idx])
         mask_store.append(masks_np[idx])
         date_store.append(date)
         instrument_store.append(instruments[idx])
@@ -128,25 +147,36 @@ def _collect_batch_arrays(preds, labels, masks, dates, instruments, pred_store, 
 
 def train_one_epoch(model, loader, optimizer, loss_fn, device, grad_clip):
     model.train()
-    losses = []
+    pred_losses, reg_losses, total_losses = [], [], []
     pred_store, label_store, mask_store, date_store, instrument_store = [], [], [], [], []
 
-    for X, y, mask, dates, instruments in tqdm(loader, desc="train", leave=False):
+    for X, y, raw_y, mask, dates, instruments, history in tqdm(loader, desc="train", leave=False):
         X = X.to(device)
         y = y.to(device)
+        raw_y = raw_y.to(device)
         mask = mask.to(device)
+        history = history.to(device) if history is not None else None
 
         optimizer.zero_grad(set_to_none=True)
-        preds = model(X, mask)
-        loss = loss_fn(preds, y, mask)
-        loss.backward()
+        preds = model(X, mask, history=history)
+        pred_loss = loss_fn(preds, y, mask)
+        reg_loss = (
+            model.regularization_loss()
+            if hasattr(model, "regularization_loss")
+            else pred_loss.detach().new_zeros(())
+        )
+        total_loss = pred_loss + reg_loss
+        total_loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         optimizer.step()
 
-        losses.append(float(loss.detach().cpu()))
+        pred_losses.append(float(pred_loss.detach().cpu()))
+        reg_losses.append(float(reg_loss.detach().cpu()))
+        total_losses.append(float(total_loss.detach().cpu()))
         _collect_batch_arrays(
             preds=preds,
             labels=y,
+            raw_labels=raw_y,
             masks=mask,
             dates=dates,
             instruments=instruments,
@@ -158,7 +188,12 @@ def train_one_epoch(model, loader, optimizer, loss_fn, device, grad_clip):
         )
 
     metrics = ic_metrics(pred_store, label_store, mask_store)
-    return float(np.mean(losses)) if losses else 0.0, metrics
+    return {
+        "pred_loss": float(np.mean(pred_losses)) if pred_losses else 0.0,
+        "reg_loss": float(np.mean(reg_losses)) if reg_losses else 0.0,
+        "total_loss": float(np.mean(total_losses)) if total_losses else 0.0,
+        "metrics": metrics,
+    }
 
 
 @torch.no_grad()
@@ -166,14 +201,17 @@ def evaluate(model, loader, device, compute_portfolio: bool = False):
     model.eval()
     pred_store, label_store, mask_store, date_store, instrument_store = [], [], [], [], []
 
-    for X, y, mask, dates, instruments in tqdm(loader, desc="eval", leave=False):
+    for X, y, raw_y, mask, dates, instruments, history in tqdm(loader, desc="eval", leave=False):
         X = X.to(device)
         y = y.to(device)
+        raw_y = raw_y.to(device)
         mask = mask.to(device)
-        preds = model(X, mask)
+        history = history.to(device) if history is not None else None
+        preds = model(X, mask, history=history)
         _collect_batch_arrays(
             preds=preds,
             labels=y,
+            raw_labels=raw_y,
             masks=mask,
             dates=dates,
             instruments=instruments,
@@ -232,13 +270,13 @@ def main() -> None:
     )
     train_loader, valid_loader, test_loader = build_loaders(cfg, train_ds, valid_ds, test_ds)
 
-    model = build_model(cfg["model"], d_in=train_ds.feature_dim).to(device)
+    model = build_model(cfg["model"], d_in=train_ds.feature_dim, train_dataset=train_ds).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=float(cfg["train"]["lr"]),
         weight_decay=float(cfg["train"]["weight_decay"]),
     )
-    loss_fn = choose_loss(str(cfg["train"]["loss"]).lower())
+    loss_fn = choose_loss(cfg["train"])
 
     max_epochs = int(cfg["train"]["epochs"])
     patience = int(cfg["train"]["early_stop_patience"])
@@ -252,12 +290,21 @@ def main() -> None:
     with log_path.open("w", newline="", encoding="utf-8") as fp:
         writer = csv.DictWriter(
             fp,
-            fieldnames=["epoch", "train_loss", "train_IC", "valid_IC", "valid_ICIR", "valid_RankIC"],
+            fieldnames=[
+                "epoch",
+                "train_loss",
+                "train_reg_loss",
+                "train_total_loss",
+                "train_IC",
+                "valid_IC",
+                "valid_ICIR",
+                "valid_RankIC",
+            ],
         )
         writer.writeheader()
 
         for epoch in range(1, max_epochs + 1):
-            train_loss, train_metrics = train_one_epoch(
+            train_out = train_one_epoch(
                 model=model,
                 loader=train_loader,
                 optimizer=optimizer,
@@ -269,8 +316,10 @@ def main() -> None:
 
             row = {
                 "epoch": epoch,
-                "train_loss": train_loss,
-                "train_IC": train_metrics["IC_mean"],
+                "train_loss": train_out["pred_loss"],
+                "train_reg_loss": train_out["reg_loss"],
+                "train_total_loss": train_out["total_loss"],
+                "train_IC": train_out["metrics"]["IC_mean"],
                 "valid_IC": valid_metrics["IC_mean"],
                 "valid_ICIR": valid_metrics["ICIR"],
                 "valid_RankIC": valid_metrics["RankIC_mean"],
@@ -298,8 +347,9 @@ def main() -> None:
 
             print(
                 f"epoch={epoch:03d} "
-                f"train_loss={train_loss:.6f} "
-                f"train_IC={train_metrics['IC_mean']:.4f} "
+                f"train_loss={train_out['pred_loss']:.6f} "
+                f"train_reg_loss={train_out['reg_loss']:.6f} "
+                f"train_IC={train_out['metrics']['IC_mean']:.4f} "
                 f"valid_IC={valid_metrics['IC_mean']:.4f} "
                 f"valid_ICIR={valid_metrics['ICIR']:.4f}"
             )
