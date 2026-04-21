@@ -14,6 +14,7 @@ from models.fdg_sparse import SparseRollingFDGRegressor
 from models.fdg_temporal import TemporalFDGRegressor
 from models.temporal_graph import EntropyGraphRegressor, EntropyStockGraph, FDGAuxGraphRegressor, RollingCorrelationGraph
 from train.loss import build_loss, trim_extreme_mask
+from train.train_single import apply_train_window_overrides, build_recency_weight_map
 
 
 class ModelVariantTests(unittest.TestCase):
@@ -64,6 +65,43 @@ class ModelVariantTests(unittest.TestCase):
         )
 
         self.assertEqual(list(transformed.columns), ["KEEP"])
+
+    def test_apply_train_window_overrides_updates_split_and_fit_range(self):
+        cfg = {
+            "splits": {
+                "train": ["2010-01-01", "2020-12-31"],
+                "valid": ["2021-01-01", "2021-12-31"],
+                "test": ["2022-01-01", "2025-12-31"],
+            },
+            "fit_start_time": "2010-01-01",
+            "fit_end_time": "2020-12-31",
+            "train": {
+                "train_window_years": 5,
+            },
+        }
+
+        adjusted = apply_train_window_overrides(cfg)
+
+        self.assertEqual(adjusted["splits"]["train"], ["2016-01-01", "2020-12-31"])
+        self.assertEqual(adjusted["fit_start_time"], "2016-01-01")
+        self.assertEqual(adjusted["fit_end_time"], "2020-12-31")
+
+    def test_build_recency_weight_map_emphasizes_recent_days(self):
+        class DummyDataset:
+            days = [
+                {"date": pd.Timestamp("2020-01-01")},
+                {"date": pd.Timestamp("2020-01-02")},
+                {"date": pd.Timestamp("2020-01-03")},
+            ]
+
+        weight_map = build_recency_weight_map(
+            {"recency_weighting": {"mode": "exp", "lambda_days": 1}},
+            DummyDataset(),
+        )
+
+        self.assertAlmostEqual(sum(weight_map.values()) / 3.0, 1.0, places=6)
+        self.assertLess(weight_map["2020-01-01"], weight_map["2020-01-02"])
+        self.assertLess(weight_map["2020-01-02"], weight_map["2020-01-03"])
 
     def test_fused_fdg_gate_shapes(self):
         torch.manual_seed(0)
@@ -139,6 +177,49 @@ class ModelVariantTests(unittest.TestCase):
 
         self.assertEqual(tuple(out.shape), (2, 4, 5))
         self.assertTrue(torch.allclose(out[0, 2], torch.zeros(5), atol=1e-6))
+
+    def test_fdg_graph_feature_selection_and_gate(self):
+        class DummyDataset:
+            feature_names = ["IMXD60", "KEEP_A", "KEEP_B", "CORR60", "KEEP_C"]
+
+        torch.manual_seed(2)
+        model = build_model(
+            {
+                "name": "fdg",
+                "rank": 3,
+                "d_hidden": 8,
+                "dropout": 0.1,
+                "bottleneck_dim": 3,
+                "graph_feature_exclude": ["IMXD60", "CORR60"],
+                "graph_input_transform": "rank",
+                "graph_gate_init": -2.0,
+            },
+            d_in=5,
+            train_dataset=DummyDataset(),
+        )
+        X = torch.tensor(
+            [
+                [
+                    [3.0, 1.0, 4.0, 9.0, 2.0],
+                    [1.0, 5.0, 2.0, 8.0, 4.0],
+                    [2.0, 3.0, 6.0, 7.0, 8.0],
+                ]
+            ]
+        )
+        mask = torch.tensor([[True, True, True]])
+
+        y_hat, graph = model(X, mask=mask, return_graph=True)
+
+        self.assertEqual(tuple(y_hat.shape), (1, 3))
+        self.assertEqual(tuple(graph["A"].shape), (1, 3, 3))
+        self.assertEqual(tuple(graph["X_graph_input"].shape), (1, 3, 3))
+        self.assertEqual(tuple(graph["X_graph"].shape), (1, 3, 3))
+        self.assertEqual(tuple(graph["X_value"].shape), (1, 3, 5))
+        self.assertIsNotNone(graph["graph_gate"])
+        gate_value = float(graph["graph_gate"].detach())
+        self.assertGreater(gate_value, 0.0)
+        self.assertLess(gate_value, 0.5)
+        self.assertLessEqual(float(graph["X_graph_input"].abs().max()), 1.0 + 1e-6)
 
     def test_fdg_roll_variant_shapes(self):
         torch.manual_seed(3)
@@ -348,6 +429,14 @@ class ModelVariantTests(unittest.TestCase):
         mixed_loss_fn = build_loss(loss_name="mse_ic_wpcc", ic_weight=0.1, wpcc_weight=0.05)
         mixed_loss = mixed_loss_fn(preds, y, mask)
         self.assertTrue(torch.isfinite(mixed_loss))
+
+        weighted_loss = loss_fn(
+            preds,
+            y,
+            mask,
+            sample_weight=torch.tensor([0.1], dtype=torch.float32),
+        )
+        self.assertTrue(torch.isfinite(weighted_loss))
 
         batch = [
             (

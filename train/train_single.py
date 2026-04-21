@@ -8,6 +8,7 @@ import random
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
 import yaml
 from torch.utils.data import DataLoader
@@ -43,6 +44,23 @@ def apply_overrides(config: dict, overrides: list[str]) -> dict:
         for part in parts[:-1]:
             target = target.setdefault(part, {})
         target[parts[-1]] = value
+    return cfg
+
+
+def apply_train_window_overrides(config: dict) -> dict:
+    cfg = copy.deepcopy(config)
+    train_cfg = cfg.get("train", {})
+    window_years = train_cfg.get("train_window_years")
+    if window_years is None:
+        return cfg
+
+    train_end = pd.Timestamp(cfg["splits"]["train"][1])
+    train_start = train_end - pd.DateOffset(years=int(window_years)) + pd.Timedelta(days=1)
+    train_start_str = train_start.strftime("%Y-%m-%d")
+    train_end_str = train_end.strftime("%Y-%m-%d")
+    cfg["splits"]["train"] = [train_start_str, train_end_str]
+    cfg["fit_start_time"] = train_start_str
+    cfg["fit_end_time"] = train_end_str
     return cfg
 
 
@@ -120,6 +138,32 @@ def choose_loss(train_cfg: dict):
     )
 
 
+def _date_key(date) -> str:
+    return pd.Timestamp(date).strftime("%Y-%m-%d")
+
+
+def build_recency_weight_map(train_cfg: dict, train_dataset) -> dict[str, float] | None:
+    spec = train_cfg.get("recency_weighting") or {}
+    mode = str(spec.get("mode", "none")).lower()
+    if mode in {"none", "off", "false"}:
+        return None
+    if mode not in {"exp", "exponential"}:
+        raise ValueError(f"Unsupported recency weighting mode: {mode}")
+
+    lambda_days = int(spec.get("lambda_days", 504))
+    if lambda_days <= 0:
+        raise ValueError("recency_weighting.lambda_days must be positive.")
+
+    num_days = len(train_dataset.days)
+    day_positions = np.arange(num_days, dtype=np.float64)
+    weights = np.exp(-(num_days - 1 - day_positions) / float(lambda_days))
+    weights = weights / max(weights.mean(), 1e-12)
+    return {
+        _date_key(day["date"]): float(weight)
+        for day, weight in zip(train_dataset.days, weights, strict=True)
+    }
+
+
 def _collect_batch_arrays(
     preds,
     labels,
@@ -145,7 +189,7 @@ def _collect_batch_arrays(
         instrument_store.append(instruments[idx])
 
 
-def train_one_epoch(model, loader, optimizer, loss_fn, device, grad_clip):
+def train_one_epoch(model, loader, optimizer, loss_fn, device, grad_clip, day_weight_map=None):
     model.train()
     pred_losses, reg_losses, total_losses = [], [], []
     pred_store, label_store, mask_store, date_store, instrument_store = [], [], [], [], []
@@ -156,10 +200,17 @@ def train_one_epoch(model, loader, optimizer, loss_fn, device, grad_clip):
         raw_y = raw_y.to(device)
         mask = mask.to(device)
         history = history.to(device) if history is not None else None
+        sample_weight = None
+        if day_weight_map is not None:
+            sample_weight = torch.tensor(
+                [day_weight_map[_date_key(date)] for date in dates],
+                dtype=X.dtype,
+                device=device,
+            )
 
         optimizer.zero_grad(set_to_none=True)
         preds = model(X, mask, history=history)
-        pred_loss = loss_fn(preds, y, mask)
+        pred_loss = loss_fn(preds, y, mask, sample_weight=sample_weight)
         reg_loss = (
             model.regularization_loss()
             if hasattr(model, "regularization_loss")
@@ -249,7 +300,7 @@ def to_serializable(obj):
 
 def main() -> None:
     args = parse_args()
-    cfg = apply_overrides(load_config(args.config), args.override)
+    cfg = apply_train_window_overrides(apply_overrides(load_config(args.config), args.override))
     exp_name = args.exp_name or cfg["log"]["exp_name"]
     out_dir = Path(cfg["log"]["out_dir"]).expanduser()
     logs_dir = out_dir / "logs"
@@ -269,6 +320,7 @@ def main() -> None:
         f"d_in={train_ds.feature_dim}"
     )
     train_loader, valid_loader, test_loader = build_loaders(cfg, train_ds, valid_ds, test_ds)
+    train_day_weight_map = build_recency_weight_map(cfg["train"], train_ds)
 
     model = build_model(cfg["model"], d_in=train_ds.feature_dim, train_dataset=train_ds).to(device)
     optimizer = torch.optim.AdamW(
@@ -311,6 +363,7 @@ def main() -> None:
                 loss_fn=loss_fn,
                 device=device,
                 grad_clip=grad_clip,
+                day_weight_map=train_day_weight_map,
             )
             valid_metrics = evaluate(model=model, loader=valid_loader, device=device, compute_portfolio=False)
 

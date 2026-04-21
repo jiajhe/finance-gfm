@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import torch
 import torch.nn as nn
 
@@ -30,6 +32,90 @@ def _bottleneck_spec(d_in: int, model_cfg: dict):
     return _default_bottleneck_dim(d_in=d_in, model_cfg=model_cfg)
 
 
+def _resolve_feature_indices(
+    feature_names: Sequence[str] | None,
+    *,
+    include: Sequence[str] | str | None = None,
+    exclude: Sequence[str] | str | None = None,
+) -> list[int] | None:
+    if feature_names is None:
+        return None
+
+    names = [str(name) for name in feature_names]
+    include_set = None
+    if include is not None:
+        if isinstance(include, str):
+            include_set = {include}
+        else:
+            include_set = {str(name) for name in include}
+        missing = include_set.difference(names)
+        if missing:
+            raise ValueError(f"Unknown graph feature(s): {sorted(missing)}")
+
+    if isinstance(exclude, str):
+        exclude_set = {exclude}
+    elif exclude is None:
+        exclude_set = set()
+    else:
+        exclude_set = {str(name) for name in exclude}
+
+    indices = []
+    for idx, name in enumerate(names):
+        if include_set is not None and name not in include_set:
+            continue
+        if name in exclude_set:
+            continue
+        indices.append(idx)
+
+    if not indices:
+        raise ValueError("Graph feature selection removed every feature.")
+    if len(indices) == len(names):
+        return None
+    return indices
+
+
+def _masked_rank_transform(X: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
+    if mask is None:
+        mask = torch.ones(X.shape[:2], dtype=torch.bool, device=X.device)
+
+    transformed = torch.zeros_like(X)
+    for batch_idx in range(X.shape[0]):
+        valid_idx = torch.nonzero(mask[batch_idx], as_tuple=False).squeeze(-1)
+        n_valid = int(valid_idx.numel())
+        if n_valid <= 0:
+            continue
+        day_values = X[batch_idx, valid_idx]
+        order = torch.argsort(day_values, dim=0)
+        ranks = torch.empty_like(day_values)
+        base = torch.arange(1, n_valid + 1, device=X.device, dtype=X.dtype).unsqueeze(-1)
+        ranks.scatter_(0, order, base.expand_as(day_values))
+        transformed[batch_idx, valid_idx] = 2.0 * (ranks / float(n_valid)) - 1.0
+    return transformed * mask.unsqueeze(-1).to(transformed.dtype)
+
+
+def _masked_robust_zscore(
+    X: torch.Tensor,
+    mask: torch.Tensor | None = None,
+    *,
+    clip: float = 5.0,
+) -> torch.Tensor:
+    if mask is None:
+        mask = torch.ones(X.shape[:2], dtype=torch.bool, device=X.device)
+
+    transformed = torch.zeros_like(X)
+    for batch_idx in range(X.shape[0]):
+        valid_idx = torch.nonzero(mask[batch_idx], as_tuple=False).squeeze(-1)
+        if int(valid_idx.numel()) <= 0:
+            continue
+        day_values = X[batch_idx, valid_idx]
+        median = day_values.median(dim=0).values
+        mad = (day_values - median).abs().median(dim=0).values
+        scale = (1.4826 * mad).clamp_min(1e-6)
+        normalized = ((day_values - median) / scale).clamp(-clip, clip)
+        transformed[batch_idx, valid_idx] = normalized
+    return transformed * mask.unsqueeze(-1).to(transformed.dtype)
+
+
 class FDGRegressor(nn.Module):
     def __init__(
         self,
@@ -40,18 +126,71 @@ class FDGRegressor(nn.Module):
         dropout: float = 0.1,
         b_init: str = "identity_perturbed",
         bottleneck_dim: int = 64,
+        graph_feature_indices: Sequence[int] | None = None,
+        graph_bottleneck_dim: int | Sequence[int] | None = None,
+        graph_input_transform: str = "none",
+        graph_gate_init: float | None = None,
     ) -> None:
         super().__init__()
-        self.encoder = FeatureBottleneck(d_in=d_in, bottleneck_dim=bottleneck_dim, dropout=dropout)
-        self.fdg = FDG(d_in=d_in, rank=rank, tau=tau, b_init=b_init)
-        self.head = GNNHead(d_in=d_in, d_hidden=d_hidden, d_out=1, dropout=dropout)
+        self.value_encoder = FeatureBottleneck(d_in=d_in, bottleneck_dim=bottleneck_dim, dropout=dropout)
+        self.graph_feature_indices = None if graph_feature_indices is None else tuple(int(idx) for idx in graph_feature_indices)
+        self.graph_input_transform = str(graph_input_transform).lower()
+        graph_input_dim = d_in if self.graph_feature_indices is None else len(self.graph_feature_indices)
+        graph_bottleneck_dim = bottleneck_dim if graph_bottleneck_dim is None else graph_bottleneck_dim
+        share_graph_encoder = (
+            self.graph_feature_indices is None
+            and self.graph_input_transform in {"none", "identity"}
+            and graph_bottleneck_dim == bottleneck_dim
+        )
+        self.graph_encoder = (
+            self.value_encoder
+            if share_graph_encoder
+            else FeatureBottleneck(d_in=graph_input_dim, bottleneck_dim=graph_bottleneck_dim, dropout=dropout)
+        )
+        self.fdg = FDG(d_in=graph_input_dim, rank=rank, tau=tau, b_init=b_init)
+        self.head = GNNHead(
+            d_in=d_in,
+            d_hidden=d_hidden,
+            d_out=1,
+            dropout=dropout,
+            graph_gate_init=graph_gate_init,
+        )
+
+    def _select_graph_input(self, X: torch.Tensor) -> torch.Tensor:
+        if self.graph_feature_indices is None:
+            return X
+        return X[..., list(self.graph_feature_indices)]
+
+    def _transform_graph_input(self, X: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
+        if self.graph_input_transform in {"none", "identity"}:
+            return X
+        if self.graph_input_transform == "rank":
+            return _masked_rank_transform(X, mask=mask)
+        if self.graph_input_transform in {"robust_zscore", "robust"}:
+            return _masked_robust_zscore(X, mask=mask)
+        raise ValueError(f"Unsupported graph_input_transform: {self.graph_input_transform}")
 
     def forward(self, X, mask=None, history=None, return_graph: bool = False):
-        X_model = self.encoder(X, mask=mask)
-        A, S, R = self.fdg(X_model, mask=mask)
-        y_hat = self.head(A, X_model, mask=mask)
+        X_value = self.value_encoder(X, mask=mask)
+        X_graph_input = None
+        if self.graph_encoder is self.value_encoder and self.graph_feature_indices is None:
+            X_graph = X_value
+        else:
+            X_graph_raw = self._select_graph_input(X)
+            X_graph_input = self._transform_graph_input(X_graph_raw, mask=mask)
+            X_graph = self.graph_encoder(X_graph_input, mask=mask)
+        A, S, R = self.fdg(X_graph, mask=mask)
+        y_hat = self.head(A, X_value, mask=mask)
         if return_graph:
-            return y_hat, A, S, R
+            return y_hat, {
+                "A": A,
+                "S": S,
+                "R": R,
+                "X_graph_input": X_graph_input,
+                "X_graph": X_graph,
+                "X_value": X_value,
+                "graph_gate": self.head.graph_gate(),
+            }
         return y_hat
 
 
@@ -140,6 +279,16 @@ def build_model(model_cfg: dict, d_in: int, train_dataset=None) -> nn.Module:
     bottleneck_dim = _bottleneck_spec(d_in=d_in, model_cfg=model_cfg)
 
     if name == "fdg":
+        if train_dataset is None and (
+            model_cfg.get("graph_feature_include") is not None or model_cfg.get("graph_feature_exclude") is not None
+        ):
+            raise ValueError("Graph feature selection requires train_dataset.feature_names.")
+        feature_names = None if train_dataset is None else getattr(train_dataset, "feature_names", None)
+        graph_feature_indices = _resolve_feature_indices(
+            feature_names,
+            include=model_cfg.get("graph_feature_include"),
+            exclude=model_cfg.get("graph_feature_exclude"),
+        )
         return FDGRegressor(
             d_in=d_in,
             rank=int(model_cfg["rank"]),
@@ -148,6 +297,10 @@ def build_model(model_cfg: dict, d_in: int, train_dataset=None) -> nn.Module:
             dropout=float(model_cfg.get("dropout", 0.1)),
             b_init=str(model_cfg.get("b_init", "identity_perturbed")),
             bottleneck_dim=bottleneck_dim,
+            graph_feature_indices=graph_feature_indices,
+            graph_bottleneck_dim=model_cfg.get("graph_bottleneck_dim"),
+            graph_input_transform=str(model_cfg.get("graph_input_transform", "none")),
+            graph_gate_init=model_cfg.get("graph_gate_init"),
         )
 
     if name == "fdg_reg":

@@ -8,7 +8,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-import yaml
 from torch.utils.data import DataLoader
 
 from data.qlib_loader import (
@@ -21,7 +20,16 @@ from eval.metrics import ic as ic_metrics
 from eval.portfolio import topk_portfolio
 from models import build_model
 from train.loss import build_loss
-from train.train_single import evaluate, safe_torch_load, to_serializable, train_one_epoch
+from train.train_single import (
+    apply_overrides,
+    apply_train_window_overrides,
+    build_recency_weight_map,
+    evaluate,
+    load_config,
+    safe_torch_load,
+    to_serializable,
+    train_one_epoch,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,6 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", required=True, help="Base recent config to diagnose.")
     parser.add_argument("--seed", type=int, required=True, help="Random seed for this run.")
     parser.add_argument("--exp_name", type=str, default=None, help="Output experiment name.")
+    parser.add_argument("--override", action="append", default=[], help="Config override like train.lr=5e-4.")
     parser.add_argument(
         "--compute_drift",
         action="store_true",
@@ -46,13 +55,6 @@ def parse_args() -> argparse.Namespace:
         help="Only build the diagnostic splits and compute feature drift.",
     )
     return parser.parse_args()
-
-
-def load_config(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as fp:
-        return yaml.safe_load(fp)
-
-
 def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -277,7 +279,7 @@ def compute_feature_drift(train_ds, early_ds, late_ds, test_ds, *, seed: int) ->
 
 def main() -> None:
     args = parse_args()
-    cfg = load_config(args.config)
+    cfg = apply_train_window_overrides(apply_overrides(load_config(args.config), args.override))
     cfg["train"]["seed"] = int(args.seed)
     exp_name = args.exp_name or f"{cfg['log']['exp_name']}_diag_seed{args.seed}"
 
@@ -311,6 +313,7 @@ def main() -> None:
         f"({split_meta['valid_late_days']} days)"
     )
 
+    train_day_weight_map = build_recency_weight_map(cfg["train"], train_ds)
     drift_payload = None
     if args.compute_drift or args.drift_only:
         drift_payload = compute_feature_drift(train_ds, early_ds, late_ds, test_ds, seed=int(args.seed))
@@ -381,6 +384,7 @@ def main() -> None:
                 loss_fn=loss_fn,
                 device=device,
                 grad_clip=grad_clip,
+                day_weight_map=train_day_weight_map,
             )
             early_metrics = evaluate(model=model, loader=early_loader, device=device, compute_portfolio=False)
             late_metrics = evaluate(model=model, loader=late_loader, device=device, compute_portfolio=False)

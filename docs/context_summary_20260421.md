@@ -242,6 +242,76 @@ Conclusion:
 - they still contain signal
 - simple rank or hard removal is too crude
 
+## 2026-04-22 Follow-Up: Stable-Graph Branch
+
+A second round of recent-split diagnostics was run after adding support for:
+
+- recency-weighted training loss
+- train-window truncation
+- separate graph/value feature paths for FDG
+- graph-only input transforms
+- optional graph gate
+
+The diagnostic artifacts are stored locally under `results/tables/*.json` and remain gitignored.
+
+### Recent single-seed follow-up results
+
+- `recency504`
+  - best epoch: `35`
+  - early val IC: `0.03904`
+  - late val IC: `0.00879`
+  - test IC: `0.01380`
+- `window5y`
+  - best epoch: `20`
+  - early val IC: `0.04661`
+  - late val IC: `0.01884`
+  - test IC: `0.01520`
+- `stablegraph_rank`
+  - best epoch: `51`
+  - early val IC: `0.05662`
+  - late val IC: `0.01829`
+  - test IC: `0.02704`
+  - test RankIC: `0.02874`
+- `stablegraph_rank_gate`
+  - best epoch: `17`
+  - early val IC: `0.04860`
+  - late val IC: `0.02239`
+  - test IC: `0.01640`
+  - test RankIC: `0.01456`
+- `stablegraph_rank_w5y`
+  - best epoch: `39`
+  - early val IC: `0.04604`
+  - late val IC: `0.02126`
+  - test IC: `0.01418`
+  - test RankIC: `0.01212`
+
+### Main takeaway from the follow-up
+
+The strongest gain came from changing who is allowed to control graph construction, not from changing the loss or shortening the train window.
+
+The best follow-up variant was:
+
+- keep full features for value / prediction
+- exclude the 7 highest-drift features from graph assignment
+- apply daily rank normalization only on the graph branch
+
+This `stablegraph_rank` variant reached `test IC 0.02704`, which is:
+
+- clearly above the previous standalone FDG recent baseline `0.02092`
+- very close to the current `MASTER-quick` recent reference `0.02847`
+
+### Negative follow-up findings
+
+- recency-weighted loss alone hurt recent test materially
+- truncating the training window to 5 years did not help once the stable-graph branch was already in place
+- graph gate improved `late val` in one run, but hurt test noticeably
+
+This is an important caution:
+
+- `late val` improvements alone are not reliable
+- under the current diagnostics script, checkpoint selection still uses `early_valid_ICIR`
+- some variants that looked healthier on `late val` still generalized worse on test
+
 ## Practical Current Conclusion
 
 The repo is now in a much clearer state than before:
@@ -250,12 +320,13 @@ The repo is now in a much clearer state than before:
 - the recent split story is established
 - the main failure mode has been diagnosed as time drift
 - several obvious FDG architectural branches have already been screened
+- the strongest current recent-split single-seed candidate is now `stablegraph_rank`
 
 Right now the most promising next directions are likely:
 
-1. recency-aware weighting during training
-2. walk-forward or rolling checkpoint selection
-3. broader feature normalization/ranking strategies that preserve signal better than dropping columns
+1. multi-seed validation of `stablegraph_rank`
+2. graph-branch normalization ablations such as `rank` vs `robust_zscore` vs `none`
+3. walk-forward or rolling checkpoint selection that is more aligned with late-regime performance
 4. stronger temporal backbones with a more native FDG integration, instead of a simple residual add-on
 
 ## Notes On Artifacts
