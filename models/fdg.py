@@ -55,19 +55,34 @@ class FDG(nn.Module):
         rank: int,
         tau: float = 1.0,
         b_init: str = "identity_perturbed",
+        core_mode: str = "asymmetric",
+        share_sr_weights: bool = False,
     ) -> None:
         super().__init__()
         self.rank = int(rank)
         self.tau = float(tau)
+        self.core_mode = str(core_mode).lower()
+        self.share_sr_weights = bool(share_sr_weights)
+        if self.core_mode not in {"asymmetric", "symmetric"}:
+            raise ValueError(f"Unsupported core_mode: {core_mode}")
         self.W_s = nn.Linear(d_in, rank, bias=False)
-        self.W_r = nn.Linear(d_in, rank, bias=False)
+        if self.share_sr_weights:
+            self.W_r = self.W_s
+        else:
+            self.W_r = nn.Linear(d_in, rank, bias=False)
         self.B = nn.Parameter(torch.empty(rank, rank))
         self.reset_parameters(b_init=b_init)
 
     def reset_parameters(self, b_init: str = "identity_perturbed") -> None:
         nn.init.xavier_uniform_(self.W_s.weight)
-        nn.init.xavier_uniform_(self.W_r.weight)
+        if not self.share_sr_weights:
+            nn.init.xavier_uniform_(self.W_r.weight)
         initialize_core_matrix(self.B, b_init=b_init)
+
+    def core_matrix(self) -> torch.Tensor:
+        if self.core_mode == "symmetric":
+            return 0.5 * (self.B + self.B.transpose(-1, -2))
+        return self.B
 
     def forward(self, X, mask=None):
         """
@@ -98,7 +113,7 @@ class FDG(nn.Module):
             S = S * expanded_mask.to(S.dtype)
             R = R * expanded_mask.to(R.dtype)
 
-        A = S @ self.B @ R.transpose(-1, -2)
+        A = S @ self.core_matrix() @ R.transpose(-1, -2)
 
         A = row_normalize_adjacency(A, mask=mask)
         return A, S, R

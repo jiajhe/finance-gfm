@@ -221,6 +221,194 @@ class ModelVariantTests(unittest.TestCase):
         self.assertLess(gate_value, 0.5)
         self.assertLessEqual(float(graph["X_graph_input"].abs().max()), 1.0 + 1e-6)
 
+    def test_fdg_graph_feature_penalty_regularization(self):
+        class DummyDataset:
+            feature_names = ["IMXD60", "KEEP_A", "KEEP_B", "CORR60", "KEEP_C"]
+
+        torch.manual_seed(3)
+        model = build_model(
+            {
+                "name": "fdg",
+                "rank": 3,
+                "d_hidden": 8,
+                "dropout": 0.1,
+                "bottleneck_dim": 3,
+                "graph_feature_penalty_weight": 1e-3,
+                "graph_feature_penalty": {
+                    "IMXD60": 0.4,
+                    "CORR60": 0.2,
+                },
+            },
+            d_in=5,
+            train_dataset=DummyDataset(),
+        )
+
+        reg_loss = model.regularization_loss()
+
+        self.assertTrue(torch.isfinite(reg_loss))
+        self.assertGreater(float(reg_loss.detach()), 0.0)
+
+    def test_fdg_ablation_modes_shapes(self):
+        class DummyDataset:
+            feature_names = ["F0", "F1", "F2", "F3", "F4"]
+
+        X = torch.randn(2, 4, 5)
+        mask = torch.tensor([[True, True, True, False], [True, True, False, True]])
+
+        ablations = [
+            {"graph_mode": "identity"},
+            {"graph_mode": "random", "random_graph_seed": 7},
+            {"use_graph_branch": False},
+            {"use_skip_branch": False},
+        ]
+
+        for override in ablations:
+            model = build_model(
+                {
+                    "name": "fdg",
+                    "rank": 3,
+                    "d_hidden": 8,
+                    "dropout": 0.1,
+                    "bottleneck_dim": 3,
+                    **override,
+                },
+                d_in=5,
+                train_dataset=DummyDataset(),
+            )
+            y_hat, graph = model(X, mask=mask, return_graph=True)
+
+            self.assertEqual(tuple(y_hat.shape), (2, 4))
+            self.assertEqual(tuple(graph["A"].shape), (2, 4, 4))
+            row_sums = graph["A"][0, mask[0]].sum(dim=-1)
+            self.assertTrue(torch.allclose(row_sums, torch.ones_like(row_sums), atol=1e-5))
+            if override.get("graph_mode") in {"identity", "random"}:
+                self.assertIsNone(graph["S"])
+                self.assertIsNone(graph["R"])
+            self.assertEqual(graph["use_graph_branch"], override.get("use_graph_branch", True))
+            self.assertEqual(graph["use_skip_branch"], override.get("use_skip_branch", True))
+
+    def test_fdg_symmetric_core_mode_projects_core_matrix(self):
+        class DummyDataset:
+            feature_names = ["F0", "F1", "F2", "F3", "F4"]
+
+        torch.manual_seed(11)
+        model = build_model(
+            {
+                "name": "fdg",
+                "rank": 3,
+                "d_hidden": 8,
+                "dropout": 0.1,
+                "bottleneck_dim": 3,
+                "core_mode": "symmetric",
+            },
+            d_in=5,
+            train_dataset=DummyDataset(),
+        )
+        with torch.no_grad():
+            model.fdg.B.copy_(
+                torch.tensor(
+                    [
+                        [1.0, 2.0, 3.0],
+                        [0.0, 4.0, 5.0],
+                        [6.0, 7.0, 8.0],
+                    ],
+                    dtype=model.fdg.B.dtype,
+                )
+            )
+
+        core = model.fdg.core_matrix()
+        self.assertTrue(torch.allclose(core, core.transpose(-1, -2), atol=1e-6))
+
+        X = torch.randn(1, 4, 5)
+        mask = torch.tensor([[True, True, True, False]])
+        _, graph = model(X, mask=mask, return_graph=True)
+        self.assertEqual(graph["core_mode"], "symmetric")
+        self.assertTrue(torch.allclose(graph["B_core"], graph["B_core"].transpose(-1, -2), atol=1e-6))
+
+    def test_fdg_symmetric_shared_assignments_share_weights(self):
+        class DummyDataset:
+            feature_names = ["F0", "F1", "F2", "F3", "F4"]
+
+        torch.manual_seed(21)
+        model = build_model(
+            {
+                "name": "fdg",
+                "rank": 3,
+                "d_hidden": 8,
+                "dropout": 0.1,
+                "bottleneck_dim": 3,
+                "core_mode": "symmetric",
+                "share_sr_weights": True,
+            },
+            d_in=5,
+            train_dataset=DummyDataset(),
+        )
+
+        self.assertIs(model.fdg.W_s, model.fdg.W_r)
+
+        X = torch.randn(1, 4, 5)
+        mask = torch.tensor([[True, True, True, False]])
+        _, graph = model(X, mask=mask, return_graph=True)
+
+        self.assertTrue(graph["share_sr_weights"])
+        self.assertTrue(torch.allclose(graph["S"], graph["R"], atol=1e-6))
+
+    def test_fdg_skip_bottleneck_and_graph_layers(self):
+        class DummyDataset:
+            feature_names = ["F0", "F1", "F2", "F3", "F4"]
+
+        torch.manual_seed(12)
+        model = build_model(
+            {
+                "name": "fdg",
+                "rank": 3,
+                "d_hidden": 8,
+                "dropout": 0.1,
+                "bottleneck_dim": 3,
+                "skip_hidden_dim": 4,
+                "graph_layers": 3,
+            },
+            d_in=5,
+            train_dataset=DummyDataset(),
+        )
+
+        X = torch.randn(2, 4, 5)
+        mask = torch.tensor([[True, True, True, False], [True, True, False, True]])
+        y_hat, graph = model(X, mask=mask, return_graph=True)
+
+        self.assertEqual(tuple(y_hat.shape), (2, 4))
+        self.assertEqual(graph["skip_hidden_dim"], 4)
+        self.assertEqual(graph["graph_layers"], 3)
+
+    def test_fdg_temporal_graph_input_source(self):
+        class DummyDataset:
+            feature_names = ["F0", "F1", "F2", "F3", "F4"]
+
+        torch.manual_seed(13)
+        model = build_model(
+            {
+                "name": "fdg",
+                "rank": 3,
+                "d_hidden": 8,
+                "dropout": 0.1,
+                "bottleneck_dim": 3,
+                "graph_input_source": "history",
+                "graph_history_channels": 6,
+                "graph_history_kernel_size": 3,
+            },
+            d_in=5,
+            train_dataset=DummyDataset(),
+        )
+
+        X = torch.randn(2, 4, 5)
+        history = torch.randn(2, 4, 20)
+        mask = torch.tensor([[True, True, True, False], [True, True, False, True]])
+        y_hat, graph = model(X, mask=mask, history=history, return_graph=True)
+
+        self.assertEqual(tuple(y_hat.shape), (2, 4))
+        self.assertEqual(graph["graph_input_source"], "history")
+        self.assertEqual(tuple(graph["X_graph_input"].shape), (2, 4, 5))
+
     def test_fdg_roll_variant_shapes(self):
         torch.manual_seed(3)
         model = FDGAuxGraphRegressor(

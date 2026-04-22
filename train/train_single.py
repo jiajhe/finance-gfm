@@ -160,7 +160,7 @@ def build_recency_weight_map(train_cfg: dict, train_dataset) -> dict[str, float]
     weights = weights / max(weights.mean(), 1e-12)
     return {
         _date_key(day["date"]): float(weight)
-        for day, weight in zip(train_dataset.days, weights, strict=True)
+        for day, weight in zip(train_dataset.days, weights)
     }
 
 
