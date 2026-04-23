@@ -3,15 +3,32 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 import sys
 
 import numpy as np
 import pandas as pd
 
-QLIB_FORK_PATH = Path("/project/user186_refs/qlib_sjtu")
-if QLIB_FORK_PATH.exists():
-    sys.path.insert(0, str(QLIB_FORK_PATH))
+
+def _inject_qlib_fork() -> None:
+    candidates: list[Path] = []
+    env_path = os.environ.get("QLIB_FORK_PATH")
+    if env_path:
+        candidates.append(Path(env_path).expanduser())
+    candidates.extend(
+        [
+            Path("/project/user186_refs/qlib_sjtu"),
+            Path.home() / "refs" / "qlib_sjtu",
+        ]
+    )
+    for candidate in candidates:
+        if (candidate / "qlib").exists():
+            sys.path.insert(0, str(candidate))
+            return
+
+
+_inject_qlib_fork()
 
 # Older dask/lightgbm stacks still reach for this pandas symbol.
 try:
