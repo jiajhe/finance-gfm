@@ -1,0 +1,29 @@
+{
+  "experiment": "master_csi300_recent_seed34",
+  "config": "/home/jiajun/finance-gfm/results/seed100_gpu_master_hist_fixed/generated_configs/master_recent.yaml",
+  "overrides": [
+    "task.model.kwargs.GPU=0",
+    "task.model.kwargs.seed=34",
+    "task.model.kwargs.save_path=/home/jiajun/finance-gfm/results/seed100_gpu_master_hist_fixed/model_ckpt/master/",
+    "task.model.kwargs.save_prefix=recent_seed34_"
+  ],
+  "recorder_id": "e9cf167538a349f38d690f5d30483fe8",
+  "recorder_name": "mlflow_recorder",
+  "source_run": "file:/home/jiajun/finance-gfm/mlruns",
+  "logged_metrics": {
+    "ICIR": 1.344615512222256,
+    "Rank ICIR": 1.422777033806356,
+    "Rank IC": 0.13987276247761427,
+    "1day.excess_return_without_cost.mean": 2.5816493564181856e-05,
+    "IC": 0.12806651663482096
+  },
+  "test_metrics": {
+    "IC_mean": 0.12806651663482096,
+    "IC_std": 0.09524396786347086,
+    "ICIR": 1.344615512222256,
+    "RankIC_mean": 0.13987276247761427,
+    "RankIC_std": 0.09830968532252211,
+    "RankICIR": 1.422777033806356,
+    "n_days": 899
+  }
+}

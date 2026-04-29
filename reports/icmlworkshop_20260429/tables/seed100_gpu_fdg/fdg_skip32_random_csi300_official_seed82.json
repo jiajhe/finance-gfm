@@ -1,0 +1,33 @@
+{
+  "exp_name": "fdg_skip32_random_csi300_official_seed82",
+  "model": "fdg",
+  "market": "csi300_aligned",
+  "handler": "Alpha158",
+  "device": "cuda",
+  "model_config": {
+    "name": "fdg",
+    "rank": 32,
+    "tau": 1.0,
+    "d_hidden": 128,
+    "dropout": 0.1,
+    "b_init": "identity_perturbed",
+    "bottleneck_dim": 64,
+    "skip_hidden_dim": 32,
+    "graph_mode": "random",
+    "random_graph_seed": 82
+  },
+  "best_epoch": 26,
+  "valid_best_ICIR": 0.614184624316157,
+  "test_metrics": {
+    "IC_mean": 0.05727962462177387,
+    "IC_std": 0.11820261512480067,
+    "ICIR": 0.48458847176347924,
+    "RankIC_mean": 0.046045263281326666,
+    "RankICIR": 0.4122420044940782,
+    "annual_return": 0.506138645635541,
+    "annual_vol": 0.25517481881521714,
+    "sharpe": 1.7342592683471927,
+    "max_drawdown": -0.2306489191274066,
+    "turnover": 0.6450516647531577
+  }
+}

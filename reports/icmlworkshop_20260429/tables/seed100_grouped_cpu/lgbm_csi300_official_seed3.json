@@ -1,0 +1,40 @@
+{
+  "experiment": "lgbm_csi300_official_seed3",
+  "config": "/home/jiajun/finance-gfm/results/seed100_grouped_cpu/generated_configs/lgbm_official.yaml",
+  "overrides": [
+    "task.model.kwargs.seed=3"
+  ],
+  "recorder_id": "faebb172055a443cadee1fe26af05099",
+  "recorder_name": "mlflow_recorder",
+  "source_run": "file:/home/jiajun/finance-gfm/mlruns",
+  "logged_metrics": {
+    "l2.train": 0.9627716310684536,
+    "1day.excess_return_with_cost.information_ratio": -0.5986984818906017,
+    "1day.excess_return_with_cost.mean": -0.00047714996283144685,
+    "ICIR": 0.5440937032050317,
+    "Rank ICIR": 0.4841772500283704,
+    "1day.excess_return_without_cost.max_drawdown": -0.528235137462616,
+    "1day.pa": NaN,
+    "1day.excess_return_without_cost.std": 0.012295189195465414,
+    "1day.pos": NaN,
+    "1day.excess_return_without_cost.annualized_return": -0.11356169115388436,
+    "Rank IC": 0.048818711759166106,
+    "1day.excess_return_with_cost.max_drawdown": -0.528235137462616,
+    "1day.excess_return_without_cost.information_ratio": -0.5986984818906017,
+    "1day.excess_return_without_cost.mean": -0.00047714996283144685,
+    "1day.ffr": NaN,
+    "l2.valid": 0.9935810409692272,
+    "IC": 0.05578579057492016,
+    "1day.excess_return_with_cost.std": 0.012295189195465414,
+    "1day.excess_return_with_cost.annualized_return": -0.11356169115388436
+  },
+  "test_metrics": {
+    "IC_mean": 0.05578579057492016,
+    "IC_std": 0.10252974854571752,
+    "ICIR": 0.5440937032050317,
+    "RankIC_mean": 0.048818711759166106,
+    "RankIC_std": 0.10082818173779451,
+    "RankICIR": 0.4841772500283704,
+    "n_days": 871
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "exp_name": "fdg_skip32_symshare_csi300_official_seed23",
+  "model": "fdg",
+  "market": "csi300_aligned",
+  "handler": "Alpha158",
+  "device": "cuda",
+  "model_config": {
+    "name": "fdg",
+    "rank": 32,
+    "tau": 1.0,
+    "d_hidden": 128,
+    "dropout": 0.1,
+    "b_init": "identity_perturbed",
+    "bottleneck_dim": 64,
+    "skip_hidden_dim": 32,
+    "core_mode": "symmetric",
+    "share_sr_weights": true,
+    "symmetrize_adjacency": true
+  },
+  "best_epoch": 36,
+  "valid_best_ICIR": 0.5222067002989583,
+  "test_metrics": {
+    "IC_mean": 0.06238334612873258,
+    "IC_std": 0.11666330263888251,
+    "ICIR": 0.534729814068721,
+    "RankIC_mean": 0.045630609790914885,
+    "RankICIR": 0.4079311386340595,
+    "annual_return": 0.5049834384741994,
+    "annual_vol": 0.25943049518564565,
+    "sharpe": 1.707244810808458,
+    "max_drawdown": -0.23057713607766916,
+    "turnover": 0.6034672789896675
+  }
+}

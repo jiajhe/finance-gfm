@@ -1,0 +1,21 @@
+{
+  "exp_name": "fdg_skip32_csi300_recent_seed40",
+  "model": "fdg",
+  "market": "csi300_aligned",
+  "handler": "Alpha158",
+  "device": "cuda",
+  "best_epoch": 5,
+  "valid_best_ICIR": 0.3564818365485293,
+  "test_metrics": {
+    "IC_mean": 0.04256838619310029,
+    "IC_std": 0.10841885971981965,
+    "ICIR": 0.3926289789719908,
+    "RankIC_mean": 0.017288807054660717,
+    "RankICIR": 0.15285479611172098,
+    "annual_return": 0.2655199439696465,
+    "annual_vol": 0.2251346941232309,
+    "sharpe": 1.15864043894161,
+    "max_drawdown": -0.26599673387782397,
+    "turnover": 0.6455172413793108
+  }
+}
