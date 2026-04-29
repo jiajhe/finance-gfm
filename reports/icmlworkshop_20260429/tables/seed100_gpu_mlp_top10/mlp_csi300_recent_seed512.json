@@ -1,0 +1,28 @@
+{
+  "exp_name": "mlp_csi300_recent_seed512",
+  "model": "mlp",
+  "market": "csi300_aligned",
+  "handler": "Alpha158",
+  "device": "cuda",
+  "model_config": {
+    "name": "mlp",
+    "d_hidden": 128,
+    "dropout": 0.1,
+    "bottleneck_dim": 64,
+    "residual_layers": 2
+  },
+  "best_epoch": 11,
+  "valid_best_ICIR": 0.4065473931270209,
+  "test_metrics": {
+    "IC_mean": 0.039606662532905054,
+    "IC_std": 0.11517605899529489,
+    "ICIR": 0.3438792999031426,
+    "RankIC_mean": 0.011371042709139025,
+    "RankICIR": 0.10732859955693248,
+    "annual_return": 0.23527410523012815,
+    "annual_vol": 0.25033085280709305,
+    "sharpe": 0.9693323475446023,
+    "max_drawdown": -0.32179061123429775,
+    "turnover": 0.6449610678531705
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "main_seed": 512,
+  "top10_seeds": [
+    512,
+    23,
+    37,
+    5,
+    40,
+    55,
+    25,
+    49,
+    17,
+    79
+  ],
+  "main_heatmaps": [
+    "fdg_skip32_recent_seed512_B_heatmap_raw_order.png",
+    "fdg_skip32_recent_seed512_B_heatmap_sr_concept_cluster_order.png"
+  ],
+  "order_source": "sr_stock2concept_exposure",
+  "note": "B is the learned FDG core matrix. The right panel is (B - B.T) / 2. The clustered order is a common latent-factor order inferred from average test-set S/R stock exposure; HIST stock2concept is used as a concept proxy when available."
+}

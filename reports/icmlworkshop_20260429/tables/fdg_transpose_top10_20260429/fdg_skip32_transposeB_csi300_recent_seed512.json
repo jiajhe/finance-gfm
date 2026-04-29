@@ -1,0 +1,46 @@
+{
+  "exp_name": "fdg_skip32_transposeB_csi300_recent_seed512",
+  "base_exp_name": "fdg_skip32_csi300_recent_seed512",
+  "model": "fdg",
+  "split": "recent",
+  "seed": 512,
+  "inference_ablation": "transpose_core_B_only",
+  "trained_checkpoint": "results/seed100_gpu_fdg/ckpts/fdg_skip32_csi300_recent_seed512.pt",
+  "note": "No retraining. During inference only, FDG core_matrix() returns B.T instead of B; W_s and W_r are unchanged.",
+  "model_config": {
+    "name": "fdg",
+    "rank": 32,
+    "tau": 1.0,
+    "d_hidden": 128,
+    "dropout": 0.1,
+    "b_init": "identity_perturbed",
+    "bottleneck_dim": 64,
+    "skip_hidden_dim": 32
+  },
+  "best_epoch": 16,
+  "valid_best_ICIR": 0.38422265003113976,
+  "test_metrics": {
+    "IC_mean": 0.04392615134496936,
+    "IC_std": 0.11981746091513015,
+    "ICIR": 0.3666089316988899,
+    "RankIC_mean": 0.025322333855521056,
+    "RankICIR": 0.23987870854405965,
+    "annual_return": 0.25947335536164196,
+    "annual_vol": 0.23807423382899479,
+    "sharpe": 1.0882972413927863,
+    "max_drawdown": -0.3073802727070801,
+    "turnover": 0.6364849833147945
+  },
+  "original_test_metrics": {
+    "IC_mean": 0.045676716947675916,
+    "IC_std": 0.130493136781159,
+    "ICIR": 0.3500315654475926,
+    "RankIC_mean": 0.02779906391575631,
+    "RankICIR": 0.22048956467432201,
+    "annual_return": 0.26934948086658794,
+    "annual_vol": 0.24890183069805563,
+    "sharpe": 1.0829621649138421,
+    "max_drawdown": -0.3488368722134447,
+    "turnover": 0.6385317018909904
+  }
+}
