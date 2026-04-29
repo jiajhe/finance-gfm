@@ -1,0 +1,87 @@
+{
+  "target_checkpoint": "results/seed100_gpu_fdg/ckpts/fdg_skip32_csi300_recent_seed37.pt",
+  "source_checkpoint": null,
+  "b_op": "identity",
+  "market": "csi300_aligned",
+  "test_split": [
+    "2022-01-01",
+    "2025-09-17"
+  ],
+  "n_test_days": 899,
+  "feature_dim": 157,
+  "target_epoch": 11,
+  "target_valid_metrics": {
+    "IC_mean": 0.04459898318383407,
+    "IC_std": 0.1221487939827341,
+    "ICIR": 0.3651201270979245,
+    "RankIC_mean": 0.015878523202114633,
+    "RankICIR": 0.1264411321455038
+  },
+  "metrics": {
+    "IC_mean": 0.043249146039566894,
+    "IC_std": 0.11960779715262873,
+    "ICIR": 0.36159136000454606,
+    "RankIC_mean": 0.025994318491986697,
+    "RankICIR": 0.20121204309537857,
+    "annual_return": 0.2612774107504934,
+    "annual_vol": 0.22978766631945155,
+    "sharpe": 1.1253439519368968,
+    "max_drawdown": -0.2887445245501844,
+    "turnover": 0.6788654060066746
+  },
+  "target_b_stats": {
+    "shape": [
+      32,
+      32
+    ],
+    "mean": 0.03412135690450668,
+    "std": 0.18312013149261475,
+    "min": -0.1679736077785492,
+    "max": 1.1060205698013306,
+    "fro_norm": 5.960703372955322,
+    "sym_fro_norm": 5.866194725036621,
+    "asym_fro_norm": 1.0572316646575928,
+    "asym_ratio": 0.17736693113340019,
+    "diag_mean": 1.015390157699585
+  },
+  "selected_b_stats": {
+    "shape": [
+      32,
+      32
+    ],
+    "mean": 0.03412135690450668,
+    "std": 0.18312013149261475,
+    "min": -0.1679736077785492,
+    "max": 1.1060205698013306,
+    "fro_norm": 5.960703372955322,
+    "sym_fro_norm": 5.866194725036621,
+    "asym_fro_norm": 1.0572316646575928,
+    "asym_ratio": 0.17736693113340019,
+    "diag_mean": 1.015390157699585
+  },
+  "transferred_b_stats": {
+    "shape": [
+      32,
+      32
+    ],
+    "mean": 0.03412135690450668,
+    "std": 0.18312013149261475,
+    "min": -0.1679736077785492,
+    "max": 1.1060205698013306,
+    "fro_norm": 5.960703372955322,
+    "sym_fro_norm": 5.866194725036621,
+    "asym_fro_norm": 1.0572316646575928,
+    "asym_ratio": 0.17736693113340019,
+    "diag_mean": 1.015390157699585
+  },
+  "selected_vs_target_b": {
+    "cosine": 0.9999999667927484,
+    "l2_delta": 0.0,
+    "mean_abs_delta": 0.0
+  },
+  "transferred_vs_target_b": {
+    "cosine": 0.9999999667927484,
+    "l2_delta": 0.0,
+    "mean_abs_delta": 0.0
+  }
+}
