@@ -1,0 +1,73 @@
+qlib_init:
+  provider_uri: /home/jiajun/.qlib/qlib_data/cn_data_2024h1
+  region: cn
+  kernels: 4
+market: csi300_aligned
+benchmark: SH000300
+data_handler_config: &data_handler_config
+  start_time: 2010-01-01
+  end_time: "2025-09-17"
+  fit_start_time: 2010-01-01
+  fit_end_time: 2020-12-31
+  instruments: csi300_aligned
+  process_type: independent
+  infer_processors:
+    - class: DropCol
+      kwargs:
+        col_list: [VWAP0]
+    - class: CSZFillna
+      kwargs:
+        fields_group: feature
+    - class: CSZScoreNorm
+      kwargs:
+        fields_group: feature
+  learn_processors:
+    - class: DropCol
+      kwargs:
+        col_list: [VWAP0]
+    - class: DropnaProcessor
+      kwargs:
+        fields_group: feature
+    - class: DropnaLabel
+    - class: CSZScoreNorm
+      kwargs:
+        fields_group: feature
+    - class: CSZScoreNorm
+      kwargs:
+        fields_group: label
+  label:
+    - Ref($close, -2) / Ref($close, -1) - 1
+task:
+  model_save_path: /home/jiajun/finance-gfm/results/gats_rescue_20260503/pretrain/gru_csi300_recent_seed512.pt
+  model:
+    class: GRUSeqFixedSampler
+    module_path: models.gats_fixed_ts
+    kwargs:
+      d_feat: 157
+      hidden_size: 64
+      num_layers: 2
+      dropout: 0.0
+      n_epochs: 60
+      lr: 0.001
+      metric: loss
+      batch_size: 2000
+      early_stop: 12
+      loss: mse
+      optimizer: adam
+      GPU: 0
+      n_jobs: 0
+      seed: 512
+  dataset:
+    class: TSDatasetH
+    module_path: qlib.data.dataset
+    kwargs:
+      handler:
+        class: Alpha158
+        module_path: qlib.contrib.data.handler
+        kwargs: *data_handler_config
+      segments:
+        train: [2010-01-01, 2020-12-31]
+        valid: [2021-01-01, 2021-12-31]
+        test: [2022-01-01, "2025-09-17"]
+      step_len: 20
+  record: []

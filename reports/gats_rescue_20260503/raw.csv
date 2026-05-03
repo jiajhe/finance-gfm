@@ -1,0 +1,5 @@
+variant,seed,IC_mean,IC_std,ICIR,RankIC_mean,RankIC_std,RankICIR,n_days,note
+loss-stop_no-pretrain,512,0.026689,0.102573,0.260197,0.015226,0.109189,0.139445,899,original completed GAT seed512
+rankicir-stop_no-pretrain,512,0.020953,0.096005,0.218247,0.018545,0.088846,0.208734,899,RankIC improves but IC drops
+icir-stop_no-pretrain,512,0.022793,0.090887,0.250788,0.014030,0.082035,0.171028,899,valid ICIR improves but test IC remains lower
+gru-pretrain_loss-stop,512,0.008561,0.122734,0.069756,-0.009774,0.137516,-0.071078,899,same TSDatasetH daily-sampler GRU pretrain

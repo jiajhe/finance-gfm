@@ -108,9 +108,33 @@ def _series_stats(values: list[float]) -> dict[str, float]:
     return {"mean": mean, "std": std, "ir": ir, "count": int(arr.size)}
 
 
+def _mlruns_root(recorder) -> Path:
+    uri = getattr(recorder, "uri", None)
+    if isinstance(uri, str) and uri.startswith("file:"):
+        return Path(uri[5:])
+    return Path.cwd() / "mlruns"
+
+
+def _load_recorder_object(recorder, object_name: str):
+    try:
+        return recorder.load_object(object_name)
+    except Exception:
+        artifacts = sorted(_mlruns_root(recorder).glob(f"*/{recorder.id}/artifacts/{object_name}"))
+        if not artifacts:
+            raise
+        return pd.read_pickle(artifacts[-1])
+
+
+def _safe_list_metrics(recorder) -> dict:
+    try:
+        return recorder.list_metrics()
+    except Exception as exc:
+        return {"_error": f"{type(exc).__name__}: {exc}"}
+
+
 def _compute_signal_metrics(recorder) -> dict:
-    pred = recorder.load_object("pred.pkl")
-    label = recorder.load_object("label.pkl")
+    pred = _load_recorder_object(recorder, "pred.pkl")
+    label = _load_recorder_object(recorder, "label.pkl")
 
     if isinstance(pred, pd.Series):
         pred = pred.to_frame("score")
@@ -184,7 +208,11 @@ def main() -> None:
     with R.start(experiment_name=args.experiment):
         recorder = R.get_recorder()
         if hasattr(model, "fit"):
-            model.fit(dataset)
+            model_save_path = task.get("model_save_path")
+            if model_save_path:
+                model.fit(dataset, save_path=model_save_path)
+            else:
+                model.fit(dataset)
 
         for record_cfg in task.get("record", []):
             resolved_cfg = deepcopy(record_cfg)
@@ -204,7 +232,7 @@ def main() -> None:
                 "recorder_id": recorder.id,
                 "recorder_name": recorder.name,
                 "source_run": getattr(recorder, "uri", None),
-                "logged_metrics": recorder.list_metrics(),
+                "logged_metrics": _safe_list_metrics(recorder),
                 "test_metrics": _compute_signal_metrics(recorder),
             }
             summary = _to_serializable(payload)

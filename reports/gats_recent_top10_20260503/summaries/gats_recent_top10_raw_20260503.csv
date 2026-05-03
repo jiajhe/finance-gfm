@@ -1,0 +1,11 @@
+seed,status,recorder_id,IC_mean,IC_std,ICIR,RankIC_mean,RankIC_std,RankICIR,annual_return,annual_vol,sharpe,max_drawdown,turnover,n_days,daily_return_mean,daily_return_std,path,recorder_run_dir
+512,exact,5c96969ba379447a8dbdca02cab89e75,0.026689135525323218,0.10257298072848113,0.26019654821157523,0.015225828904718842,0.10918893718899847,0.1394447944700111,0.006144325468275282,0.17665321473752513,0.034781849157993774,-0.38879871368408203,0.0,899,2.5816493564181856e-05,0.011450727157032388,results/seed100_gpu_gats/tables/gats_samplerfixed_csi300_recent_seed512.json,/home/jiajun/finance-gfm/mlruns/172818529729937484/5c96969ba379447a8dbdca02cab89e75
+23,exact,0efb2ee876bd489e8e63a3f53d02769e,0.028578169098436215,0.10816941517980579,0.2641982398715186,0.01830494792157911,0.11547183800357626,0.15852304975878354,0.006144325468275282,0.17665321473752513,0.034781849157993774,-0.38879871368408203,0.0,899,2.5816493564181856e-05,0.011450727157032388,results/seed100_gpu_gats/tables/gats_samplerfixed_csi300_recent_seed23.json,/home/jiajun/finance-gfm/mlruns/163478312135484834/0efb2ee876bd489e8e63a3f53d02769e
+37,missing,,,,,,,,,,,,,,,,results/seed100_gpu_gats/tables/gats_samplerfixed_csi300_recent_seed37.json,
+5,missing,,,,,,,,,,,,,,,,results/seed100_gpu_gats/tables/gats_samplerfixed_csi300_recent_seed5.json,
+40,missing,,,,,,,,,,,,,,,,results/seed100_gpu_gats/tables/gats_samplerfixed_csi300_recent_seed40.json,
+55,missing,,,,,,,,,,,,,,,,results/seed100_gpu_gats/tables/gats_samplerfixed_csi300_recent_seed55.json,
+25,missing,,,,,,,,,,,,,,,,results/seed100_gpu_gats/tables/gats_samplerfixed_csi300_recent_seed25.json,
+49,missing,,,,,,,,,,,,,,,,results/seed100_gpu_gats/tables/gats_samplerfixed_csi300_recent_seed49.json,
+17,missing,,,,,,,,,,,,,,,,results/seed100_gpu_gats/tables/gats_samplerfixed_csi300_recent_seed17.json,
+79,missing,,,,,,,,,,,,,,,,results/seed100_gpu_gats/tables/gats_samplerfixed_csi300_recent_seed79.json,

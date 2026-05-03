@@ -1,0 +1,106 @@
+qlib_init:
+  provider_uri: /home/jiajun/.qlib/qlib_data/cn_data_2024h1
+  region: cn
+  kernels: 4
+market: csi300_aligned
+benchmark: SH000300
+data_handler_config: &data_handler_config
+  start_time: 2010-01-01
+  end_time: "2025-09-17"
+  fit_start_time: 2010-01-01
+  fit_end_time: 2020-12-31
+  instruments: csi300_aligned
+  process_type: independent
+  infer_processors:
+    - class: DropCol
+      kwargs:
+        col_list: [VWAP0]
+    - class: CSZFillna
+      kwargs:
+        fields_group: feature
+    - class: CSZScoreNorm
+      kwargs:
+        fields_group: feature
+  learn_processors:
+    - class: DropCol
+      kwargs:
+        col_list: [VWAP0]
+    - class: DropnaProcessor
+      kwargs:
+        fields_group: feature
+    - class: DropnaLabel
+    - class: CSZScoreNorm
+      kwargs:
+        fields_group: feature
+    - class: CSZScoreNorm
+      kwargs:
+        fields_group: label
+  label:
+    - Ref($close, -2) / Ref($close, -1) - 1
+port_analysis_config: &port_analysis_config
+  strategy:
+    class: TopkDropoutStrategy
+    module_path: qlib.contrib.strategy
+    kwargs:
+      signal: <PRED>
+      topk: 50
+      n_drop: 5
+  backtest:
+    start_time: 2022-01-01
+    end_time: "2025-09-17"
+    account: 100000000
+    benchmark: SH000300
+    exchange_kwargs:
+      limit_threshold: 0.095
+      deal_price: close
+      open_cost: 0.0005
+      close_cost: 0.0015
+      min_cost: 5
+task:
+  model:
+    class: GATsFixedSampler
+    module_path: models.gats_fixed_ts
+    kwargs:
+      d_feat: 157
+      hidden_size: 64
+      num_layers: 2
+      dropout: 0.0
+      n_epochs: 60
+      lr: 0.001
+      metric: rankicir
+      early_stop: 12
+      loss: mse
+      base_model: GRU
+      model_path:
+      optimizer: adam
+      GPU: 0
+      n_jobs: 0
+      seed: 2026
+  dataset:
+    class: TSDatasetH
+    module_path: qlib.data.dataset
+    kwargs:
+      handler:
+        class: Alpha158
+        module_path: qlib.contrib.data.handler
+        kwargs: *data_handler_config
+      segments:
+        train: [2010-01-01, 2020-12-31]
+        valid: [2021-01-01, 2021-12-31]
+        test: [2022-01-01, "2025-09-17"]
+      step_len: 20
+  record:
+    - class: SignalRecord
+      module_path: qlib.workflow.record_temp
+      kwargs:
+        model: <MODEL>
+        dataset: <DATASET>
+    - class: SigAnaRecord
+      module_path: qlib.workflow.record_temp
+      kwargs:
+        ana_long_short: false
+        ann_scaler: 252
+    - class: PortAnaRecord
+      module_path: qlib.workflow.record_temp
+      kwargs:
+        config: *port_analysis_config
